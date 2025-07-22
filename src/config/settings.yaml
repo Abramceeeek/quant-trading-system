@@ -1,18 +1,126 @@
+# Algorithmic Trading Bot Configuration
+# Environment: development | production | testing
+environment: development
+
+# Capital Settings
 initial_capital: 10000
 live_trading: false
+paper_trading: true
 
+# Risk Management Settings
+risk_management:
+  max_portfolio_risk: 0.02  # 2% max risk per trade
+  max_position_size: 0.10   # 10% max position size
+  max_daily_loss: 0.05      # 5% daily loss limit
+  max_sector_exposure: 0.25 # 25% max exposure per sector
+  stop_loss_threshold: -0.05 # 5% portfolio stop loss
+  profit_target_multiplier: 2.0 # Risk:Reward ratio
+
+# Trading Settings
+trading:
+  min_volume: 100
+  min_iv: 0.15
+  max_iv: 0.60
+  max_cost_ratio: 0.03
+  profit_target: 0.50
+  stop_loss: -0.75
+  max_daily_trades: 10
+  trading_hours:
+    start: "09:30"
+    end: "16:00"
+    timezone: "America/New_York"
+
+# Watchlist - Organized by sectors
 watchlist:
-  - SPY
-  - QQQ
-  - AAPL
-  - MSFT
-  - NVDA
-  - TSLA
-  - GOOGL
-  - META
+  technology:
+    - AAPL
+    - MSFT
+    - NVDA
+    - GOOGL
+    - META
+    - TSLA
+  etfs:
+    - SPY
+    - QQQ
+    - IWM
+    - VIX
+  finance:
+    - JPM
+    - BAC
+    - GS
 
+# Strategy Configuration
 enabled_strategies:
   - iron_condor
   - wheel
   - volatility_scalping
   - momentum
+
+strategy_settings:
+  iron_condor:
+    min_days_to_expiry: 7
+    max_days_to_expiry: 45
+    wing_width: 5
+    otm_percentage: 0.05
+  wheel:
+    put_delta_target: 0.30
+    call_delta_target: 0.30
+    min_premium: 0.5
+  volatility_scalping:
+    iv_percentile_threshold: 0.75
+    min_iv_rank: 50
+  momentum:
+    rsi_oversold: 30
+    rsi_overbought: 70
+    min_volume_spike: 2.0
+
+# IBKR Settings
+ibkr:
+  host: "127.0.0.1"
+  port: 7497
+  client_id: 1
+  timeout: 10
+  max_reconnect_attempts: 3
+
+# Logging Configuration
+logging:
+  level: INFO
+  log_to_file: true
+  log_file_path: "data/logs/algo_bot.log"
+  max_log_size_mb: 10
+  backup_count: 5
+  
+# Notification Settings
+notifications:
+  enabled: true
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    to_addresses: []
+  slack:
+    enabled: false
+    webhook_url: ""
+
+# Data Sources
+data_sources:
+  primary: "yfinance"
+  backup: "alpha_vantage"
+  real_time: "ibkr"
+
+# Backtesting Settings
+backtesting:
+  start_date: "2020-01-01"
+  end_date: null  # null for current date
+  commission_per_contract: 0.65
+  slippage: 0.01
+  initial_capital: 10000
+
+# Performance Monitoring
+monitoring:
+  performance_check_interval: 300  # seconds
+  risk_check_interval: 60         # seconds
+  position_check_interval: 30     # seconds
+  save_state_interval: 3600       # seconds

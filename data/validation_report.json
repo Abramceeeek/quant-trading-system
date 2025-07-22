@@ -1,0 +1,39 @@
+{
+  "timestamp": "1753217057.01751",
+  "tests": {
+    "imports": {
+      "status": "FAILED",
+      "success": false
+    },
+    "config_manager": {
+      "status": "PASSED",
+      "success": true
+    },
+    "error_handler": {
+      "status": "FAILED",
+      "success": false
+    },
+    "enhanced_bot": {
+      "status": "FAILED",
+      "success": false
+    },
+    "directory_structure": {
+      "status": "FAILED",
+      "success": false
+    },
+    "configuration_validation": {
+      "status": "PASSED",
+      "success": true
+    },
+    "requirements": {
+      "status": "FAILED",
+      "success": false
+    }
+  },
+  "summary": {
+    "total_tests": 7,
+    "passed_tests": 2,
+    "failed_tests": 5,
+    "success_rate": 28.57142857142857
+  }
+}

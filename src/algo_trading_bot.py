@@ -17,6 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'backtesting'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'risk_management'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'ibkr'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 
 try:
     from strategies.advanced_strategies import AdvancedTradingStrategies
@@ -24,55 +25,109 @@ try:
     from risk_management.risk_manager_advanced import AdvancedRiskManager
     from ibkr.ibkr_manager import IBKRManager
     from modules.options_data import get_stock_price, get_expiry_dates, get_option_chain, find_atm_option
+    from utils.config_manager import ConfigManager
+    from utils.error_handler import ErrorHandler, error_handler, validate_trading_preconditions
+    from utils.error_handler import TradingBotError, ConfigurationError, ConnectionError
 except ImportError as e:
     print(f"Import error: {e}")
     print("Please ensure all required modules are available")
 
 import yaml
 
-def load_config(config_path='config/settings.yaml'):
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
 class AlgoTradingBot:
+    """
+    Advanced algorithmic trading bot with comprehensive risk management,
+    error handling, and configuration management.
+    """
+    
     def __init__(self, config_path='config/settings.yaml'):
-        config = load_config(config_path)
-        self.initial_capital = config.get('initial_capital', 10000)
-        self.live_trading = config.get('live_trading', False)
-        self.current_capital = self.initial_capital
+        """
+        Initialize the algorithmic trading bot.
         
-        # Initialize components
-        self.strategy_engine = AdvancedTradingStrategies()
-        self.risk_manager = AdvancedRiskManager(self.initial_capital)
-        self.backtest_engine = OptionsBacktestEngine(self.initial_capital)
+        Args:
+            config_path: Path to configuration file
+        """
+        try:
+            # Initialize configuration and utilities
+            self.config_manager = ConfigManager(config_path)
+            self.error_handler = ErrorHandler(self.config_manager)
+            
+            # Capital settings
+            self.initial_capital = self.config_manager.get('initial_capital', 10000)
+            self.live_trading = self.config_manager.get('live_trading', False)
+            self.current_capital = self.initial_capital
+            
+            # Initialize trading components
+            self._initialize_components()
+            
+            # Configuration shortcuts
+            self.watchlist = self.config_manager.get_watchlist_symbols()
+            self.enabled_strategies = self.config_manager.get('enabled_strategies', [])
+            
+            # Results tracking
+            self.trade_log = []
+            self.performance_metrics = {}
+            self.backtest_results = {}
+            self.daily_pnl = 0.0
+            self.max_drawdown = 0.0
+            
+            # Setup directories
+            self._setup_directories()
+            
+            # Get logger (already configured by ConfigManager)
+            self.logger = logging.getLogger(__name__)
+            
+            self.logger.info(f"AlgoTradingBot initialized - Capital: ${self.initial_capital:,} - Live: {self.live_trading}")
+            self.logger.info(f"Watchlist: {len(self.watchlist)} symbols, Strategies: {len(self.enabled_strategies)}")
+            
+        except Exception as e:
+            # Use basic logging if error_handler not available yet
+            logging.error(f"Failed to initialize AlgoTradingBot: {e}")
+            raise ConfigurationError(f"Bot initialization failed: {e}")
+    
+    def _initialize_components(self):
+        """Initialize trading components with error handling."""
+        try:
+            # Initialize strategy engine with configuration
+            self.strategy_engine = AdvancedTradingStrategies()
+            self.strategy_engine.config_manager = self.config_manager
+            
+            # Initialize risk manager with enhanced settings
+            risk_limits = self.config_manager.get_risk_limits()
+            self.risk_manager = AdvancedRiskManager(
+                initial_capital=self.initial_capital,
+                max_portfolio_risk=risk_limits.get('max_portfolio_risk', 0.02)
+            )
+            
+            # Initialize backtest engine
+            self.backtest_engine = OptionsBacktestEngine(self.initial_capital)
+            
+            # IBKR connection (only for live trading)
+            self.ibkr_manager = None
+            if self.live_trading:
+                ibkr_config = self.config_manager.get('ibkr', {})
+                self.ibkr_manager = IBKRManager(
+                    host=ibkr_config.get('host', '127.0.0.1'),
+                    port=ibkr_config.get('port', 7497),
+                    client_id=ibkr_config.get('client_id', 1)
+                )
+                
+        except Exception as e:
+            raise ConfigurationError(f"Component initialization failed: {e}")
+    
+    def _setup_directories(self):
+        """Setup required directories for data storage."""
+        directories = [
+            'data',
+            'data/logs',
+            'data/backtest_results',
+            'data/daily_results',
+            'data/daily_summaries',
+            'data/reports'
+        ]
         
-        # IBKR connection (only for live trading)
-        self.ibkr_manager = None
-        if self.live_trading:
-            self.ibkr_manager = IBKRManager()
-        
-        # Configuration
-        self.watchlist = config.get('watchlist', [])
-        self.enabled_strategies = config.get('enabled_strategies', [])
-        
-        # Results tracking
-        self.trade_log = []
-        self.performance_metrics = {}
-        self.backtest_results = {}
-        
-        # Setup logging
-        os.makedirs('data', exist_ok=True)
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('data/algo_bot.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
-        
-        self.logger.info(f"AlgoTradingBot initialized - Capital: ${self.initial_capital:,} - Live: {self.live_trading}")
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
     
     def _initialize_backtest_results(self) -> Dict:
         results = {}
@@ -169,77 +224,112 @@ class AlgoTradingBot:
         
         return summary
     
+    @error_handler(context="generate_signals", critical=False, reraise=False, default_return=[])
     def generate_signals(self, symbol: str) -> List[Dict]:
         """
-        Generate trading signals for a given symbol
+        Generate trading signals for a given symbol with enhanced error handling.
+        
+        Args:
+            symbol: Stock symbol to generate signals for
+            
+        Returns:
+            List of trading signals
         """
         signals = []
         
-        try:
-            # Get current market data
-            spot_price = get_stock_price(symbol)
-            expiries = get_expiry_dates(symbol)
-            
-            if not expiries:
-                return signals
-            
-            # Use nearest expiry (usually weekly) and next monthly
-            near_expiry = expiries[0]
-            
-            calls, puts = get_option_chain(symbol, near_expiry)
-            
-            if calls.empty or puts.empty:
-                return signals
-            
-            # Get historical volatility
-            historical_vol = self.strategy_engine.get_historical_volatility(symbol)
-            
-            # Generate signals from different strategies
-            
-            # 1. Iron Condor
-            if 'iron_condor' in self.enabled_strategies:
-                ic_signal = self.strategy_engine.iron_condor_signal(
-                    calls, puts, spot_price, near_expiry
-                )
-                if ic_signal:
-                    ic_signal['symbol'] = symbol
-                    ic_signal['expiry'] = near_expiry
-                    signals.append(ic_signal)
-            
-            # 2. Wheel Strategy
-            if 'wheel' in self.enabled_strategies:
-                wheel_signal = self.strategy_engine.wheel_strategy_signal(
-                    puts, spot_price, near_expiry, self.current_capital
-                )
-                if wheel_signal:
-                    wheel_signal['symbol'] = symbol
-                    wheel_signal['expiry'] = near_expiry
-                    signals.append(wheel_signal)
-            
-            # 3. Volatility Scalping
-            if 'volatility_scalping' in self.enabled_strategies:
-                vol_signal = self.strategy_engine.volatility_scalping_signal(
-                    calls, puts, spot_price, historical_vol
-                )
-                if vol_signal:
-                    vol_signal['symbol'] = symbol
-                    vol_signal['expiry'] = near_expiry
-                    signals.append(vol_signal)
-            
-            # 4. Momentum
-            if 'momentum' in self.enabled_strategies:
-                momentum_signal = self.strategy_engine.momentum_breakout_signal(
-                    symbol, calls
-                )
-                if momentum_signal:
-                    momentum_signal['symbol'] = symbol
-                    momentum_signal['expiry'] = near_expiry
-                    signals.append(momentum_signal)
-            
-        except Exception as e:
-            self.logger.error(f"Error generating signals for {symbol}: {e}")
+        # Validate symbol
+        if not symbol or not isinstance(symbol, str):
+            self.logger.warning(f"Invalid symbol provided: {symbol}")
+            return signals
         
+        # Get current market data
+        spot_price = get_stock_price(symbol)
+        if spot_price is None or spot_price <= 0:
+            self.logger.warning(f"Invalid spot price for {symbol}: {spot_price}")
+            return signals
+        
+        expiries = get_expiry_dates(symbol)
+        if not expiries:
+            self.logger.info(f"No expiry dates found for {symbol}")
+            return signals
+        
+        # Use nearest expiry (usually weekly) and next monthly
+        near_expiry = expiries[0]
+        
+        calls, puts = get_option_chain(symbol, near_expiry)
+        
+        if calls.empty or puts.empty:
+            self.logger.info(f"No option chain data for {symbol} expiry {near_expiry}")
+            return signals
+        
+        # Get historical volatility
+        historical_vol = self.strategy_engine.get_historical_volatility(symbol)
+        
+        # Generate signals from different strategies
+        strategy_methods = {
+            'iron_condor': self._generate_iron_condor_signal,
+            'wheel': self._generate_wheel_signal,
+            'volatility_scalping': self._generate_volatility_signal,
+            'momentum': self._generate_momentum_signal
+        }
+        
+        for strategy_name in self.enabled_strategies:
+            if strategy_name in strategy_methods:
+                try:
+                    signal = strategy_methods[strategy_name](
+                        symbol, calls, puts, spot_price, near_expiry, historical_vol
+                    )
+                    if signal:
+                        signals.append(signal)
+                except Exception as e:
+                    self.logger.warning(f"Error generating {strategy_name} signal for {symbol}: {e}")
+        
+        self.logger.info(f"Generated {len(signals)} signals for {symbol}")
         return signals
+    
+    def _generate_iron_condor_signal(self, symbol: str, calls: pd.DataFrame, puts: pd.DataFrame, 
+                                   spot_price: float, near_expiry: str, historical_vol: float) -> Optional[Dict]:
+        """Generate Iron Condor signal."""
+        ic_signal = self.strategy_engine.iron_condor_signal(calls, puts, spot_price, near_expiry)
+        if ic_signal:
+            ic_signal['symbol'] = symbol
+            ic_signal['expiry'] = near_expiry
+            ic_signal['strategy'] = 'iron_condor'
+        return ic_signal
+    
+    def _generate_wheel_signal(self, symbol: str, calls: pd.DataFrame, puts: pd.DataFrame, 
+                             spot_price: float, near_expiry: str, historical_vol: float) -> Optional[Dict]:
+        """Generate Wheel strategy signal."""
+        wheel_signal = self.strategy_engine.wheel_strategy_signal(
+            puts, spot_price, near_expiry, self.current_capital
+        )
+        if wheel_signal:
+            wheel_signal['symbol'] = symbol
+            wheel_signal['expiry'] = near_expiry
+            wheel_signal['strategy'] = 'wheel'
+        return wheel_signal
+    
+    def _generate_volatility_signal(self, symbol: str, calls: pd.DataFrame, puts: pd.DataFrame, 
+                                  spot_price: float, near_expiry: str, historical_vol: float) -> Optional[Dict]:
+        """Generate Volatility Scalping signal."""
+        vol_signal = self.strategy_engine.volatility_scalping_signal(
+            calls, puts, spot_price, historical_vol
+        )
+        if vol_signal:
+            vol_signal['symbol'] = symbol
+            vol_signal['expiry'] = near_expiry
+            vol_signal['strategy'] = 'volatility_scalping'
+        return vol_signal
+    
+    def _generate_momentum_signal(self, symbol: str, calls: pd.DataFrame, puts: pd.DataFrame, 
+                                spot_price: float, near_expiry: str, historical_vol: float) -> Optional[Dict]:
+        """Generate Momentum strategy signal."""
+        momentum_signal = self.strategy_engine.momentum_breakout_signal(symbol, calls)
+        if momentum_signal:
+            momentum_signal['symbol'] = symbol
+            momentum_signal['expiry'] = near_expiry
+            momentum_signal['strategy'] = 'momentum'
+        return momentum_signal
     
     def evaluate_and_execute_signals(self, signals: List[Dict]) -> List[Dict]:
         """

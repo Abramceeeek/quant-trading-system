@@ -11,28 +11,59 @@ from typing import Dict, List
 import pandas as pd
 
 # Add project paths
-sys.path.append(os.path.join(os.path.dirname(__file__), 'strategies'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'risk_management'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'ibkr'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'strategies'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'risk_management'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'ibkr'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'utils'))
 
-from algo_trading_bot import AlgoTradingBot
+from src.algo_trading_bot import AlgoTradingBot
+from src.utils.error_handler import ErrorHandler, error_handler, TradingBotError
+from src.utils.config_manager import ConfigManager
 
 class LiveTradingSystem:
-    def __init__(self):
-        self.bot = AlgoTradingBot(initial_capital=10000, live_trading=True)
-        self.is_running = False
-        self.daily_logs = []
+    """
+    Enhanced live trading system with comprehensive error handling and monitoring.
+    """
+    
+    def __init__(self, config_path: str = 'src/config/settings.yaml'):
+        """
+        Initialize the live trading system.
         
-        # Setup logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('data/live_trading.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+        Args:
+            config_path: Path to configuration file
+        """
+        try:
+            # Initialize configuration
+            self.config_manager = ConfigManager(config_path)
+            self.error_handler = ErrorHandler(self.config_manager)
+            
+            # Override settings for live trading
+            self.config_manager.update_setting('live_trading', True)
+            self.config_manager.update_setting('environment', 'production')
+            
+            # Initialize trading bot
+            self.bot = AlgoTradingBot(config_path)
+            
+            # System state
+            self.is_running = False
+            self.daily_logs = []
+            self.trade_count_today = 0
+            self.daily_pnl = 0.0
+            self.emergency_stop = False
+            
+            # Risk monitoring
+            self.max_daily_trades = self.config_manager.get('trading.max_daily_trades', 10)
+            self.max_daily_loss = self.config_manager.get('risk_management.max_daily_loss', 0.05)
+            
+            # Get logger (already configured by ConfigManager)
+            self.logger = logging.getLogger(__name__)
+            
+            self.logger.info("LiveTradingSystem initialized successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize LiveTradingSystem: {e}")
+            raise TradingBotError(f"Live trading system initialization failed: {e}")
     
     def pre_market_routine(self):
         """Pre-market preparation routine"""
