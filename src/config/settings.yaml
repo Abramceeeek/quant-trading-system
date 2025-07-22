@@ -1,0 +1,18 @@
+initial_capital: 10000
+live_trading: false
+
+watchlist:
+  - SPY
+  - QQQ
+  - AAPL
+  - MSFT
+  - NVDA
+  - TSLA
+  - GOOGL
+  - META
+
+enabled_strategies:
+  - iron_condor
+  - wheel
+  - volatility_scalping
+  - momentum
