@@ -1,0 +1,271 @@
+================================================================================
+IBKR PAPER TRADING SETUP GUIDE
+================================================================================
+
+This guide walks you through setting up Interactive Brokers TWS (Trader
+Workstation) for paper trading with your quant trading system.
+
+PREREQUISITES:
+==============
+
+1. IBKR Account (Paper Trading)
+   - Sign up at: https://www.interactivebrokers.com
+   - Request a paper trading account (free)
+   - You'll receive account credentials (username/password)
+   - Account format: DU1234567 (paper accounts start with DU)
+
+2. TWS (Trader Workstation) Software
+   - Download from: https://www.interactivebrokers.com/en/trading/tws.php
+   - Install TWS (not IB Gateway for beginners)
+   - Current version: 10.19+ recommended
+
+
+STEP 1: CONFIGURE TWS FOR API ACCESS
+=====================================
+
+1. Launch TWS Paper Trading
+   - Open TWS application
+   - Select "Paper Trading" mode
+   - Log in with your paper account credentials
+   - Wait until you see "Simulated Trading - Connected" at the bottom
+
+2. Enable API Connections
+   - File menu > Global Configuration > API > Settings
+   - OR: Click the gear icon > Configuration > API > Settings
+
+3. Configure API Settings:
+
+   a) Check these boxes:
+      [x] Enable ActiveX and Socket Clients
+      [x] Allow connections from localhost only (for security)
+      [ ] Read-Only API (UNCHECK THIS - we need to place orders)
+
+   b) Socket port: 7497
+      (Paper trading default port)
+      (Live trading uses 7496)
+
+   c) Trusted IP addresses:
+      Add: 127.0.0.1
+
+   d) Master API client ID: (leave blank or set to 0)
+
+   e) Click "Apply" and "OK"
+
+4. Restart TWS to apply changes
+
+
+STEP 2: CONFIGURE .ENV FILE
+============================
+
+Create or update your .env file in the project root:
+
+# IBKR Connection Settings
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497              # 7497 for TWS paper, 7496 for TWS live
+IBKR_CLIENT_ID=9001         # Unique client ID (1-999)
+IBKR_ACCOUNT=DU1234567      # Replace with your paper account number
+
+# Trading Mode
+PAPER_TRADING=true
+LIVE_TRADING=false
+
+# Data & Caching
+CACHE_ENABLED=true
+CACHE_EXPIRY_DAYS=7
+
+# Logging
+LOG_LEVEL=INFO
+LOG_TO_FILE=true
+
+
+STEP 3: VERIFY CONNECTION
+==========================
+
+Test the connection with a simple Python script:
+
+```bash
+# Activate virtual environment
+source .venv/Scripts/activate
+
+# Create test script
+cat > test_ibkr.py << 'EOF'
+from ib_insync import IB
+
+ib = IB()
+try:
+    ib.connect('127.0.0.1', 7497, clientId=9001)
+    print(f"Connected: {ib.isConnected()}")
+    print(f"Accounts: {ib.managedAccounts()}")
+    ib.disconnect()
+    print("SUCCESS: Connection test passed!")
+except Exception as e:
+    print(f"ERROR: {e}")
+EOF
+
+# Run test
+python test_ibkr.py
+```
+
+Expected output:
+```
+Connected: True
+Accounts: ['DU1234567']
+SUCCESS: Connection test passed!
+```
+
+
+STEP 4: RUN PAPER TRADING
+==========================
+
+Now you're ready to place paper orders!
+
+# Dry run first (shows orders without sending)
+python -m src.cli.papertrade strategies/breakout.yaml --dry-run
+
+# Live paper trading (sends orders to TWS)
+python -m src.cli.papertrade strategies/breakout.yaml --no-dry-run
+
+When prompted "Send orders to IBKR paper account? [y/N]:", type 'y' and press Enter.
+
+You should see:
+- "Connected to IBKR: 127.0.0.1:7497"
+- Order execution results with Order IDs
+- Orders appear in TWS > Orders tab
+
+
+STEP 5: VERIFY ORDERS IN TWS
+=============================
+
+1. In TWS, go to the "Orders" tab (top menu)
+2. You should see your orders listed with:
+   - Symbol (AAPL, SPY, QQQ, etc.)
+   - Action (BUY/SELL)
+   - Quantity
+   - Order Type (MKT for market orders)
+   - Status (Submitted -> Filled)
+   - Order ID (matches CLI output)
+
+3. Check "Account" window to see:
+   - Positions (stocks you own)
+   - Cash balance changes
+   - P&L (profit/loss)
+
+
+TROUBLESHOOTING:
+================
+
+Error: "Failed to connect to IBKR"
+----------------------------------
+- Make sure TWS is running and shows "Connected" status
+- Check TWS API settings (File > Global Configuration > API)
+- Verify "Enable ActiveX and Socket Clients" is checked
+- Verify port 7497 is correct
+- Restart TWS after changing settings
+
+Error: "Read-Only API"
+----------------------
+- In TWS API settings, UNCHECK "Read-Only API"
+- This allows order placement
+- Restart TWS
+
+Error: "clientId already in use"
+--------------------------------
+- Another application is using the same client ID
+- Change IBKR_CLIENT_ID in .env to a different number (1-999)
+- Or disconnect other applications
+
+Error: "Could not qualify contract for SYMBOL"
+-----------------------------------------------
+- Symbol may be invalid or not tradeable
+- Check symbol exists: https://www.interactivebrokers.com/en/trading/products/stocks.php
+- Verify it's a US stock (SMART/USD)
+- Try a well-known symbol like AAPL first
+
+Error: "No market data permissions"
+-----------------------------------
+- Paper accounts need market data subscriptions
+- Go to Account Management > Market Data Subscriptions
+- Subscribe to "US Securities Snapshot and Futures Value Bundle" (free for paper)
+
+Orders stuck at "PreSubmitted"
+------------------------------
+- Normal during market hours - will fill shortly
+- Outside market hours, orders queue until market opens
+- Check TWS time (should match exchange hours)
+
+Port already in use
+-------------------
+- Another TWS instance or client is using port 7497
+- Close other TWS instances
+- Or use a different client ID
+
+
+COMMAND REFERENCE:
+==================
+
+# Dry run (no actual orders)
+python -m src.cli.papertrade strategies/sma_fast.yaml --dry-run
+
+# Live paper trading with default quantity (100 shares per symbol)
+python -m src.cli.papertrade strategies/sma_fast.yaml --no-dry-run
+
+# With custom quantity
+python -m src.cli.papertrade strategies/sma_fast.yaml --qty 50 --no-dry-run
+
+# With notional sizing ($2000 per symbol)
+python -m src.cli.papertrade strategies/sma_fast.yaml --notional 2000 --no-dry-run
+
+# Limit number of symbols
+python -m src.cli.papertrade strategies/sma_fast.yaml --max-symbols 3 --no-dry-run
+
+
+SAFETY TIPS:
+============
+
+1. Always start with --dry-run to preview orders
+2. Use small quantities for initial tests (--qty 1)
+3. Test with liquid symbols (AAPL, SPY, QQQ)
+4. Monitor TWS while system is running
+5. Keep TWS logs visible for debugging
+6. Paper trading = real market data, fake money
+7. Never use live account credentials in .env (use DU accounts only)
+
+
+NEXT STEPS:
+===========
+
+Once paper trading works:
+1. Run for several days/weeks to validate strategy
+2. Review orders in TWS to ensure correct execution
+3. Check P&L matches expectations
+4. Monitor for any errors or edge cases
+5. Only then consider upgrading to live (with extreme caution)
+
+
+IMPORTANT WARNINGS:
+===================
+
+- This system can place REAL ORDERS with REAL MONEY if you connect to a live account
+- NEVER set IBKR_PORT=7496 (live) unless you fully understand the risks
+- NEVER use live credentials in testing
+- Paper trading is for learning and validation ONLY
+- Live trading requires additional risk guards, testing, and monitoring
+- You are responsible for all trades placed by this system
+
+
+SUPPORT:
+========
+
+IBKR API Documentation:
+https://interactivebrokers.github.io/tws-api/
+
+ib_insync Documentation:
+https://ib-insync.readthedocs.io/
+
+TWS User Guide:
+https://www.interactivebrokers.com/en/software/tws/usersguidebook.htm
+
+Contact IBKR Support:
+https://www.interactivebrokers.com/en/support/contact.php
+
+================================================================================

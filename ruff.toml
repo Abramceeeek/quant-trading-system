@@ -1,0 +1,13 @@
+# Ruff configuration
+# Most settings are in pyproject.toml, but keeping this file for standalone ruff usage
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "DTZ", "T10", "ISC", "ICN", "PIE", "PYI", "RSE", "RET", "SIM", "TID", "ARG", "PTH", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
+ignore = ["E501", "TRY003", "PLR0913", "PLR2004"]
+
+[lint.per-file-ignores]
+"tests/*" = ["ARG", "PLR2004"]
+"__init__.py" = ["F401"]

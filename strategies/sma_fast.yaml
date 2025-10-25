@@ -1,0 +1,21 @@
+strategy:
+  name: sma_fast
+  type: sma_crossover
+  description: "Fast SMA crossover: SMA(10) crosses above SMA(20) for more frequent signals"
+
+parameters:
+  fast_period: 10
+  slow_period: 20
+
+universe: demo
+
+backtest:
+  start_date: 2020-01-01
+  end_date: 2024-12-31
+  initial_capital: 100000
+  commission_pct: 0.001
+  slippage_pct: 0.0005
+
+sizing:
+  method: equal_weight
+  max_positions: 5
